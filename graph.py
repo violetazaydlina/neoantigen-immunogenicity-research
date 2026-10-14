@@ -38,6 +38,7 @@ for record in records:
         continue
     data.append(record['WT binding score'])
 
+
 vialette.boxplot(data)
 vialette.title("Box Plot")
 vialette.show()
