@@ -51,3 +51,4 @@ vialette.boxplot(data, tick_labels=labels)
 vialette.title("Box Plot")
 vialette.ylabel("Binding Score")
 vialette.show()
+
