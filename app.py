@@ -1,6 +1,7 @@
 import gspread
 import requests
 import csv
+import time
 from io import StringIO
 
 from google.oauth2.service_account import Credentials
@@ -89,8 +90,15 @@ for record in records:
         alele = record['HLA I']
         try:
             result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
-        except:
-            continue
+        except Exception as e:
+            print(f"error: {e}")
+            time.sleep(5)
+            try:
+                result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
+            except: 
+                print(f"error: {e}")
+                continue            
+            
     
         # Update a single cell (e.g., cell B2)
         sheet.update_acell(f"N{recNum}", result)
