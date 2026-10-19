@@ -1,24 +1,14 @@
-import gspread
-import requests
 import csv
 import time
 from io import StringIO
-
+import gspread
+import pandas as pd
+import requests
 from google.oauth2.service_account import Credentials
 
+
 def predict_mhc_binding(sequence_text: str, allele: str) -> float:
-    """Sends a request to the IEDB MHC-I binding prediction API.
-
-    Args:
-        sequence_text: The amino acid sequence (e.g., "ARFTGIKTA").
-        allele: The target allele (e.g., "HLA-A*01:01").
-
-    Returns:
-        The raw text response from the IEDB API.
-    """
     url = "https://tools-cluster-interface.iedb.org/tools_api/mhci/"
-
-    # Automatically calculate sequence length
     seq_length = len(sequence_text.strip())
 
     payload = {
@@ -29,81 +19,125 @@ def predict_mhc_binding(sequence_text: str, allele: str) -> float:
     }
 
     response = requests.post(url, data=payload)
-
-    # Raise an exception if the request was unsuccessful (e.g., 4xx, 5xx)
     response.raise_for_status()
 
-    # Parse response
     reader = csv.DictReader(StringIO(response.text.strip()), delimiter="\t")
     first_row = next(reader)
 
     return float(first_row["ic50"])
 
 
-# 1. Define the scope
+# 1. Авторизація
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
-
-# 2. Authenticate using the service account JSON
 creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
 client = gspread.authorize(creds)
 
-# 3. Open the spreadsheet by name or by URL/Key
-# Option A: By Name
-# spreadsheet = client.open("My Spreadsheet Name")
-
-# Option B: By Key (found in the sheet's URL)
+# 2. Відкриття таблиці
 spreadsheet = client.open_by_key("1DtZZqrSyvuir4e8MaTaJ6HM1gRCkka9xWt3HrPranyU")
-
-# Select the active worksheet (e.g., first sheet)
 sheet = spreadsheet.sheet1
 
-
-# --- READING DATA ---
-
-# Get all values as a 2D list of strings
-# all_values = sheet.get_all_values()
-# print("All Data (Lists):", all_values)
-
-# Get all records as a list of dictionaries (using Row 1 as headers)
 records = sheet.get_all_records()
-# print("All Data (Dicts):", records)
 
-recNum = 1
+failed_items = []
+recNum = 1  # Номер рядка в Google Sheets (заголовок у рядку 1, дані з рядка 2)
 
+# ==========================================
+# 1. ОСНОВНИЙ ЦИКЛ ОБРОБКИ
+# ==========================================
 for record in records:
-    recNum = recNum + 1
-    print(f"processing line #{recNum}\n")
-    if record['Imunogenicity'] == "N":
+    recNum += 1
+
+    # Фільтрація записів
+    if record.get("Imunogenicity") == "N":
         continue
-    #if recNum < 574: continue
-    # if recNum == 25:
-    #     break
-    # print (record['Minimal peptide'])
-    minimalPeptide = record['WT peptide']
-    
-    if record['Imunogenicity'] == "P":
-        if (record['HLA II']):
+
+    if record.get("Imunogenicity") == "P":
+        if record.get("HLA II"):
             continue
-        alele = record['HLA I']
+        alele = record.get("HLA I")
+
+    # ⚠️ Беремо Wild Type (якщо потрібен мутант — замініть на відповідне поле)
+    minimalPeptide = record.get("WT peptide")
+
+    if not minimalPeptide or not alele:
+        continue
+
+    print(f"Processing line #{recNum} (Peptide: {minimalPeptide}, Allele: {alele})")
+
+    # Спроба №1 та №2
+    try:
+        result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
+        sheet.update_acell(f"N{recNum}", result)
+    except Exception as e:
+        print(f"Mistake on line {recNum}: {e}. Retrying in 10s...")
+        time.sleep(10)
         try:
             result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
-        except Exception as e:
-            print(f"error: {e}")
-            time.sleep(5)
-            try:
-                result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
-            except: 
-                print(f"error: {e}")
-                continue            
+            sheet.update_acell(f"N{recNum}", result)
+        except Exception as e2:
+            print(f"Failed again on line {recNum}. Saving to retry queue.")
+            failed_items.append(
+                {"row": recNum, "peptide": minimalPeptide, "allele": alele}
+            )
+if failed_items:
+    print(f"\n--- Starting batch retry for {len(failed_items)} failed items ---")
+    
+    # Це офіційний API-ендпоінт IEDB, який містить ваш NetMHCpan-4.0 під капотом
+    url = "https://tools-cluster-interface.iedb.org/tools_api/mhci/"
+    
+    fasta_lines = []
+    alleles_set = set()
+    row_mapping = {}  # Зв'язок: назва пептиду в пакеті -> номер рядка в Google Таблиці
+    
+    # Крок 1: Збираємо всі невдалі пептиди у форматі FASTA
+    for idx, item in enumerate(failed_items, 1):
+        p_name = f"peptide{idx}"
+        
+        # Додаємо пептид
+        fasta_lines.append(f">{p_name}\n{item['peptide']}")
+        
+        # Форматуємо алель (гарантуємо наявність префікса HLA-)
+        raw_allele = item['allele'].strip()
+        formatted_allele = raw_allele if raw_allele.startswith("HLA-") else f"HLA-{raw_allele}"
+        alleles_set.add(formatted_allele)
+        
+        # Запам'ятовуємо рядок таблиці
+        row_mapping[p_name] = item['row']
+
+    # Об'єднуємо все в єдиний текст для пакетного запиту
+    sequence_text_batch = "\n".join(fasta_lines)
+    alleles_batch = ",".join(alleles_set)
+
+    # Параметри запиту (payload), де чітко вказано ваш метод netmhcpan-4.0
+    payload = {
+        "method": "netmhcpan-4.0",     # <--- Ваш метод прогнозування
+        "sequence_text": sequence_text_batch,
+        "allele": alleles_batch,
+    }
+
+    # Крок 2: Надсилаємо один спільний запит на всі помилкові елементи
+    try:
+        print("Sending batch request to IEDB server...")
+        response = requests.post(url, data=payload)
+        response.raise_for_status()
+
+        # Крок 3: Читаємо відповідь і оновлюємо Google Таблицю
+        reader = csv.DictReader(StringIO(response.text.strip()), delimiter="\t")
+        
+        for row in reader:
+            seq_name = row.get("seq_name") or row.get("peptide_id")
             
-    
-        # Update a single cell (e.g., cell B2)
-        sheet.update_acell(f"N{recNum}", result)
-    else:
-        continue
+            if seq_name in row_mapping:
+                ic50_val = float(row["ic50"])
+                target_row = row_mapping[seq_name]
+                
+                sheet.update_acell(f"N{target_row}", ic50_val)
+                print(f"Successfully processed line #{target_row} via batch!")
 
-    
+    except Exception as e:
+        print(f"Batch request failed: {e}")
 
+print("\nDone!")
