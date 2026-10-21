@@ -1,6 +1,8 @@
 import gspread
 import matplotlib.pyplot as vialette
 from google.oauth2.service_account import Credentials
+import pandas as pd
+import seaborn as sns
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -38,6 +40,9 @@ for record in records:
         continue
     data.append(record['WT binding score'])
 
+NEPdb = pd.DataFrame(records)
+NEPdb["Binding score"] = pd.to_numeric(NEPdb["Binding score"], errors="coerce")
+sns.boxplot(data=NEPdb, x="Imunogenicity", y="Binding score", hue="HLA")
 
 vialette.boxplot(data)
 vialette.title("Box Plot")

@@ -60,7 +60,7 @@ for record in records:
         alele = record.get("HLA I")
 
     # ⚠️ Беремо Wild Type (якщо потрібен мутант — замініть на відповідне поле)
-    minimalPeptide = record.get("WT peptide")
+    minimalPeptide = record.get("Mutant peptide")
 
     if not minimalPeptide or not alele:
         continue
@@ -70,13 +70,13 @@ for record in records:
     # Спроба №1 та №2
     try:
         result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
-        sheet.update_acell(f"N{recNum}", result)
+        sheet.update_acell(f"M{recNum}", result)
     except Exception as e:
         print(f"Mistake on line {recNum}: {e}. Retrying in 10s...")
         time.sleep(10)
         try:
             result = predict_mhc_binding(sequence_text=minimalPeptide, allele=alele)
-            sheet.update_acell(f"N{recNum}", result)
+            sheet.update_acell(f"M{recNum}", result)
         except Exception as e2:
             print(f"Failed again on line {recNum}. Saving to retry queue.")
             failed_items.append(
@@ -121,6 +121,7 @@ if failed_items:
     # Крок 2: Надсилаємо один спільний запит на всі помилкові елементи
     try:
         print("Sending batch request to IEDB server...")
+        time.sleep(120)
         response = requests.post(url, data=payload)
         response.raise_for_status()
 
@@ -134,7 +135,7 @@ if failed_items:
                 ic50_val = float(row["ic50"])
                 target_row = row_mapping[seq_name]
                 
-                sheet.update_acell(f"N{target_row}", ic50_val)
+                sheet.update_acell(f"M{target_row}", ic50_val)
                 print(f"Successfully processed line #{target_row} via batch!")
 
     except Exception as e:
