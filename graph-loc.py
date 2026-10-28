@@ -63,3 +63,19 @@ plt.xticks(rotation=45, ha='right', rotation_mode='anchor')
 plt.tight_layout()
 plt.savefig(f"./plots/necid_barplot_allele_respose_{COL}_{COL_2}.png", format="png")
 plt.close()
+
+data["strong_binder_rank"] = data["percentile_rank"]<0.5
+counts = data[data["peptide_orign"]==COL][["strong_binder_rank","alleleA", "response"]].value_counts().to_frame().reset_index()
+# percent of strong-binders according to rank per allele and response
+counts["allele-binder-percent"] = round((
+    counts["count"] / counts.groupby(["alleleA", "response"])["count"].transform("sum")
+)*100, 2)
+COL_2 = True
+plt.figure(figsize=(12,6))
+sns.barplot(data=counts[counts["strong_binder_rank"]==COL_2], x="alleleA", y="allele-binder-percent", hue="response", order=sorted(counts['alleleA'].unique()));
+plt.title(f"{COL}, strong_binder_rank={COL_2}")
+plt.ylabel("percent")
+plt.xticks(rotation=45, ha='right', rotation_mode='anchor')
+plt.tight_layout()
+plt.savefig(f"./plots/necid_barplot_allele_respose_{COL}_strong_binder_rank{COL_2}.png", format="png")
+plt.close()

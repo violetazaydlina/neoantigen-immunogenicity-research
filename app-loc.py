@@ -86,19 +86,19 @@ for start in range(0, len(items), BATCH_SIZE):
     else:
         # Lookup of predictions: (peptide, allele, length) -> ic50
         predictions = {
-            (r["peptide"], r["allele"], int(r["length"])): float(r["ic50"])
+            (r["peptide"], r["allele"], int(r["length"])): [float(r["ic50"]), float(r["percentile_rank"])]
             for r in csv.DictReader(StringIO(response.text.strip()), delimiter="\t")
         }
 
     for row_idx, pep, allele, immunogenicity, peptide_orign in batch:
-        ic50 = predictions.get((pep, allele, len(pep)))
+        ic50, rank = predictions.get((pep, allele, len(pep)))
         if ic50 is not None:
-            results.append([row_idx, immunogenicity, peptide_orign, allele, pep, ic50])
+            results.append([row_idx, immunogenicity, peptide_orign, allele, pep, ic50, rank])
         else:
             print(f"No result for row {row_idx}: {pep} / {allele}")
 
 print("WRITE RESULTS & SAVE", len(results))
 
-results = pd.DataFrame(results, columns = ["necid_row_idx", "response", "peptide_orign", "alleleA", "peptide_sequence", "ic50"])
+results = pd.DataFrame(results, columns = ["necid_row_idx", "response", "peptide_orign", "alleleA", "peptide_sequence", "ic50", "percentile_rank"])
 results.to_csv("./data/processed/NECID_Results.csv", index=False)
 print("Done!")
