@@ -99,6 +99,6 @@ for start in range(0, len(items), BATCH_SIZE):
 
 print("WRITE RESULTS & SAVE", len(results))
 
-results = pd.DtaFrame(results, columns = ["necid_row_idx", "response", "peptide_orign", "alleleA", "peptide_sequence", "ic50"])
+results = pd.DataFrame(results, columns = ["necid_row_idx", "response", "peptide_orign", "alleleA", "peptide_sequence", "ic50"])
 results.to_csv("./data/processed/NECID_Results.csv", index=False)
 print("Done!")
