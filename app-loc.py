@@ -1,9 +1,11 @@
 import csv
 import time
 from io import StringIO
+import gspread
 
 import pandas as pd
 import requests
+from google.oauth2.service_account import Credentials
 
 URL = "https://tools-cluster-interface.iedb.org/tools_api/mhci/"
 TOOL_VERSION = "netmhcpan-4.1"
@@ -17,6 +19,19 @@ min_peptide_length = 9
 max_peptide_length = 11
 
 print(f"Apply {TOOL_VERSION} to peptide={','.join(PEP_COL)}, responce={','.join(immunogenicity)}, peptide pairs length>={min_peptide_length}, peptide pairs length<={max_peptide_length}, HLA=alleleA, excluded alleleA: {','.join(unsupported_allelesA)} (unsuported)")
+
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+client = gspread.authorize(creds)
+
+# 2. Відкриття таблиці
+spreadsheet = client.open_by_key("1DtZZqrSyvuir4e8MaTaJ6HM1gRCkka9xWt3HrPranyU")
+sheet = spreadsheet.sheet1
+
 
 records = pd.read_csv("./data/raw/NECID_Query.csv")
 #records[COL] = None
@@ -98,6 +113,14 @@ for start in range(0, len(items), BATCH_SIZE):
             print(f"No result for row {row_idx}: {pep} / {allele}")
 
 print("WRITE RESULTS & SAVE", len(results))
+
+for row_idx, immunogenicity, peptide_orign, allele, pep, ic50, rank in results:
+    target_row = row_idx + 2  
+
+    if peptide_orign == "mut_peptide":
+        sheet.update_acell(f"M{target_row}", ic50)
+    elif peptide_orign == "wt_peptide":
+        sheet.update_acell(f"N{target_row}", ic50)
 
 results = pd.DataFrame(results, columns = ["necid_row_idx", "response", "peptide_orign", "alleleA", "peptide_sequence", "ic50", "percentile_rank"])
 results.to_csv("./data/processed/NECID_Results.csv", index=False)
