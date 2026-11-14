@@ -35,10 +35,14 @@ heatmap_rows = []
 for hla_val, group in merged_data.groupby(hla_column):
     total_peptides = len(group)
 
-    # ФІЛЬТР: ігноруємо алелі з кількістю пептидів менше 10
-    if total_peptides < 10:
-        continue
 
+    group_p = group[group["response"] == "P"]
+    group_n = group[group["response"] == "N"]
+    if len(group) < 2 or len(group_p) == 0 or len(group_n) == 0:
+           continue
+
+
+    
     # Матриця помилок
     tp = ((group["response"] == "P") & (group["Foreignness_Score"] > 0.5)).sum()
     fn = ((group["response"] == "P") & (group["Foreignness_Score"] <= 0.5)).sum()
